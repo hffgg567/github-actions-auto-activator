@@ -22,12 +22,13 @@ README.md
 
 ## 一、部署 GitHub Pages
 
+采用 GitHub Actions 自动部署（`.github/workflows/pages.yml`），推送 `docs/` 改动即自动发布。
+
 1. 将本仓库推送到 GitHub（main 分支）。
 2. 进入仓库 `Settings → Pages`：
-   - **Source** 选择 `Deploy from a branch`
-   - **Branch** 选择 `main`，目录选 `/docs`
-   - 点击 **Save**
-3. 几分钟后访问：`https://<你的用户名>.github.io/<仓库名>/`
+   - **Source** 选择 **`GitHub Actions`**（仅首次需要手动选一次）
+3. 之后每次推送 `docs/` 下的文件，工作流会[自动构建并发布](https://github.com/hffgg567/github-actions-auto-activator/actions)。
+4. 访问：`https://<你的用户名>.github.io/<仓库名>/`
    （例如 `https://hffgg567.github.io/github-actions-auto-activator/`）
 
 > 页面会自动从 URL 推断「控制仓库」（即存放 config.json 的这个仓库），无需手动填写。
