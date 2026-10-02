@@ -1,140 +1,96 @@
-# GitHub Actions 自动重新激活 + Web 管理台
+# GitHub Actions 自动重新激活 + Web 管理台（GitHub Pages）
 
 解决 GitHub 工作流因 **60 天未活动** 被自动停用（状态 `disabled_inactivity`）后，需要批量/手动重新激活的问题。
 
-包含两部分：
-
-1. **定时批量激活工作流**（`.github/workflows/auto-activate-workflows.yml`）
-   - 跨多个仓库扫描
-   - 只处理被 GitHub 自动标记为 `disabled_inactivity` 的工作流
-   - 支持 DRY_RUN 预览
-   - 支持手动触发 + 定时触发
-
-2. **Web 管理台**（`actions-manager/`）
-   - 在仓库内嵌入一个网页，手动启动/停止任意 Actions 工作流
-   - 高亮显示 `disabled_inactivity` 状态的工作流
-   - 一键批量激活所有因不活跃被停用的工作流
-   - 支持本地直连（浏览器填 Token）或服务端代理（Vercel 部署）两种模式
+- **定时自动激活**：跨仓库扫描，重新启用 `disabled_inactivity` 的工作流。
+- **Web 管理台**：由 **GitHub Pages** 静态托管，纯前端，浏览器直连 GitHub API。可在网页上配置定时激活参数，或手动启停任意工作流——**无需任何后端服务器**。
+- 配置保存在仓库的 `config.json`，网页可直接读写。
 
 ---
 
 ## 目录结构
 
 ```
-.github/workflows/auto-activate-workflows.yml   # 定时批量激活工作流
-actions-manager/index.html                      # Web 管理台 UI
-actions-manager/app.js                          # Web 管理台逻辑
-actions-manager/api/workflows.js                # Vercel 服务端：列出工作流
-actions-manager/api/workflow/enable.js          # Vercel 服务端：启用工作流
-actions-manager/api/workflow/disable.js         # Vercel 服务端：禁用工作流
+docs/index.html                               # Web 管理台（单文件，GitHub Pages 托管）
+config.json                                   # 网页写入的配置文件
+.github/workflows/auto-activate-workflows.yml # 定时批量激活工作流（读取 config.json）
+.nojekyll                                     # 让 GitHub Pages 不运行 Jekyll
 README.md
 ```
 
 ---
 
-## 一、定时批量激活（跨仓库）
+## 一、部署 GitHub Pages
 
-### 工作原理
+1. 将本仓库推送到 GitHub（main 分支）。
+2. 进入仓库 `Settings → Pages`：
+   - **Source** 选择 `Deploy from a branch`
+   - **Branch** 选择 `main`，目录选 `/docs`
+   - 点击 **Save**
+3. 几分钟后访问：`https://<你的用户名>.github.io/<仓库名>/`
+   （例如 `https://hffgg567.github.io/github-actions-auto-activator/`）
 
-GitHub 对 60 天未收到任何 `workflow_dispatch` / `schedule` / `push` 等触发的工作流，会自动将其状态改为 `disabled_inactivity`。该工作流本身若处于停用状态则无法被定时触发，因此需要把它放在**一个持续活跃的仓库**里，由它去扫描并激活其他仓库。
-
-- 使用 `GET /repos/{owner}/{repo}/actions/workflows` 列出目标仓库工作流
-- 只处理 `state === "disabled_inactivity"` 的工作流
-- 使用 `PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable` 重新启用
-- `DRY_RUN: true` 时只打印将要激活的列表，不实际执行
-
-### 部署
-
-1. 把 `auto-activate-workflows.yml` 放到一个**会持续触发**的仓库（例如你的控制仓库）的：
-
-   ```
-   .github/workflows/auto-activate-workflows.yml
-   ```
-
-2. 在仓库 `Settings → Secrets and variables → Actions` 中配置 Token：
-
-   - **仅单仓库**（控制仓库 == 目标仓库）：无需额外配置，使用内置 `GITHUB_TOKEN` 即可
-   - **跨仓库**：新建 `BATCH_TOKEN`，内容为对所有目标仓库有 `repo` 权限的 Personal Access Token（PAT）
-
-3. 手动运行一次验证：进入 Actions 页面 → 选择 `Auto-Activate Paused Workflows (Multi-Repo)` → Run workflow。
-
-### 使用参数
-
-手动触发时支持以下输入：
-
-| 参数 | 说明 | 默认值 |
-|---|---|---|
-| `repos` | 目标仓库列表，每行一个 `owner/repo`。留空 = 仅当前仓库 | （当前仓库） |
-| `paused_threshold_days` | 停用天数阈值，超过才激活。GitHub 自动停用一般为 60 天 | `60` |
-| `dry_run` | 只报告，不实际激活 | `false` |
-| `token` | 跨仓库使用的 PAT，优先级高于 `BATCH_TOKEN` secret | （空） |
-
-### 修改频率
-
-编辑 yml 中的 `on.schedule.cron`：
-
-```yaml
-schedule:
-  - cron: "0 */12 * * *"   # 每 12 小时一次（UTC）
-```
-
-GitHub cron 最小精度为 5 分钟。
+> 页面会自动从 URL 推断「控制仓库」（即存放 config.json 的这个仓库），无需手动填写。
 
 ---
 
-## 二、Web 管理台
+## 二、使用 Web 管理台
 
-### 功能
+打开页面后三步即可：
 
-- 输入仓库（`owner/repo`）和 Token
-- 列出该仓库所有工作流及状态（`active` / `disabled_manually` / `disabled_schedule` / `disabled_inactivity`）
-- 高亮显示因不活跃被停用的工作流（`disabled_inactivity`）
-- 手动「启用」或「禁用」单个工作流
-- 一键「激活不活跃工作流」：批量启用所有 `disabled_inactivity` 状态的工作流
-- 一键「全部禁用」：批量禁用所有 `active` 状态的工作流
-- Token 保存在浏览器 `localStorage`，不上传服务器
+### ① 连接
+- **控制仓库**：默认自动填充（来自页面 URL），可改。
+- **Token**：填入有 `repo` 权限的 Personal Access Token（PAT）。
+  - 需要 `repo` scope（用于读写 config.json、触发工作流、启停工作流）。
+  - Token 仅保存在浏览器 `localStorage`，不上传任何服务器。
+- 点「连接并加载配置」。
 
-### 两种运行模式
+### ② 定时自动激活配置
+- 勾选 **启用定时自动激活**。
+- **目标仓库**：每行一个 `owner/repo`（要被扫描并激活的仓库）。
+- **停用阈值**：默认 60 天（GitHub 自动停用的标准时长）。
+- **检查频率**：每 6 / 12 小时 / 每天。
+- 点「**保存配置到仓库**」→ 写入 `config.json`，并同步更新 `auto-activate-workflows.yml` 的 cron。
+- 点「**立即运行一次**」→ 通过 workflow_dispatch 立刻触发一次扫描（用于验证）。
 
-页面会自动探测当前运行环境：
+### ③ 手动管理（任意仓库）
+- 填任意 `owner/repo`，点「加载工作流」。
+- 列表显示每个工作流的状态（`active` / `disabled_manually` / `disabled_schedule` / `disabled_inactivity`）。
+- 单个「启用 / 禁用」按钮，或「一键激活全部『不活跃停用』」。
+- 注意：手动管理也只把 `disabled_inactivity` 高亮为可一键恢复；其他状态按需手动操作。
 
-| 模式 | 触发条件 | Token 存放位置 | 适合场景 |
-|---|---|---|---|
-| 本地直连 | 双击 `index.html`（`file://`）或本地静态服务器 | 浏览器 `localStorage` | 本地使用、个人 |
-| 服务端 | 部署在 Vercel，探测到 `/api/workflows` 端点 | 服务端环境变量 `GITHUB_TOKEN` | 团队共享、公开托管 |
+---
 
-### 方式 A：本地打开（最快）
+## 三、定时激活工作原理
 
-1. 直接用浏览器打开 `actions-manager/index.html`，或启动一个本地静态服务器：
+- 工作流因 60 天无活动被 GitHub 自动标记为 `disabled_inactivity`。
+- `.github/workflows/auto-activate-workflows.yml` 按设定频率运行：
+  - 读取根目录 `config.json` 得到目标仓库、阈值、是否启用。
+  - 只处理 `state === "disabled_inactivity"` 的工作流。
+  - 用 `PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable` 重新启用。
+- 配置优先级：手动 `workflow_dispatch` 输入 > `config.json` > 仅当前仓库。
+- 若 `config.json` 中 `enabled: false`，定时触发时自动跳过（手动触发仍会运行）。
+- `DRY_RUN`：可在手动触发时勾选「只报告不实际激活」。
 
-   ```bash
-   cd actions-manager
-   python3 -m http.server 8080
-   ```
+---
 
-2. 浏览器访问 `http://localhost:8080`。
-3. 粘贴一个有 `repo` 权限的 PAT，输入仓库，点击「加载工作流」。
+## 四、权限说明
 
-> 页面右上角会显示「本地直连」。
-
-### 方式 B：部署到 Vercel（推荐团队使用）
-
-1. 把整个仓库推到 GitHub。
-2. 在 Vercel 上 import 该仓库，**Framework 选 `Other`**。
-3. 在项目环境变量添加 `GITHUB_TOKEN`（对所有目标仓库有 `repo` 权限的 PAT）。
-4. 部署后访问 `https://<你的域名>/actions-manager/`，页面右上角显示「服务端模式」。
-
-部署后 `actions-manager/api/` 目录下的文件会自动变成 Vercel serverless 函数，前端会走 `/api/...` 通道，浏览器无需填写 Token。
-
-### 排错
-
-| 症状 | 处理 |
+| 场景 | Token 要求 |
 |---|---|
-| 401 Unauthorized | Token 无权限或过期，重新生成 PAT |
-| 403 Forbidden | 目标仓库 `Settings → Actions → General` 未勾选 "Allow GitHub Actions"，或 Token 缺少 `repo` 权限 |
-| 加载后空列表 | 确认仓库路径写全 `owner/repo`，且仓库有 `.github/workflows/*.yml` |
-| 写操作 CORS 报错 | 改用方式 B（Vercel 部署），或确认浏览器允许跨域请求 |
-| 模式标签一直「检测中…」 | 页面被 iframe 嵌入时可能探测不到 `/api`；本地直接打开会显示「本地直连」 |
+| 管理**本仓库**（控制仓库 == 目标仓库） | 内置 `GITHUB_TOKEN` 即可（Actions 内）；网页手动管理需 PAT `repo` |
+| 管理**其他仓库**（跨仓库） | 需要一个对所有目标仓库有 `repo` 权限的 PAT，存入 Secrets 的 `BATCH_TOKEN` |
+
+> 网页「手动管理」和「保存配置」都需要你自己的 PAT（因为纯前端，没有服务端代持 Token）。
+
+---
+
+## 五、安全提醒
+
+- PAT 仅存于浏览器本地，不会发送到除 `api.github.com` 以外的任何地方。
+- 建议用**专用、最小权限**的 PAT，用完后可随时在 GitHub 撤销。
+- 公开仓库的 GitHub Pages 页面任何人都能访问，但**没有你的 PAT 无法操作任何仓库**。
+- 若担心 localStorage，可在浏览器设置中清除站点数据。
 
 ---
 
@@ -142,23 +98,22 @@ GitHub cron 最小精度为 5 分钟。
 
 | 文件 | 作用 |
 |---|---|
-| `.github/workflows/auto-activate-workflows.yml` | 定时批量激活：只处理 `disabled_inactivity`，支持多仓库 + DRY_RUN |
-| `actions-manager/index.html` | 管理台 UI |
-| `actions-manager/app.js` | 管理台逻辑：自动检测模式、分页加载、启停工作流 |
-| `actions-manager/api/workflows.js` | Vercel 服务端：列出工作流（合并分页） |
-| `actions-manager/api/workflow/enable.js` | Vercel 服务端：启用工作流 |
-| `actions-manager/api/workflow/disable.js` | Vercel 服务端：禁用工作流 |
+| `docs/index.html` | 单文件 Web 管理台（配置 + 手动管理，纯前端） |
+| `config.json` | 网页写入的配置（启停开关、目标仓库、阈值、频率） |
+| `.github/workflows/auto-activate-workflows.yml` | 定时批量激活，读取 config.json |
+| `.nojekyll` | 关闭 GitHub Pages 的 Jekyll 处理 |
 
 ---
 
 ## 相关 GitHub API
 
 - 列出工作流：`GET /repos/{owner}/{repo}/actions/workflows`
-- 启用工作流：`PUT /repos/{owner}/{repo}/actions/workflows/{workflow_id}/enable`
-- 禁用工作流：`PUT /repos/{owner}/{repo}/actions/workflows/{workflow_id}/disable`
+- 启用工作流：`PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable`
+- 禁用工作流：`PUT /repos/{owner}/{repo}/actions/workflows/{id}/disable`
+- 读取/写入文件：`GET/PUT /repos/{owner}/{repo}/contents/{path}`
+- 手动触发：`POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches`
 
-工作流 `state` 字段说明：
-
+工作流 `state` 字段：
 - `active`：正常启用
 - `disabled_manually`：手动禁用
 - `disabled_schedule`：调度禁用

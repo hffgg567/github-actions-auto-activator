@@ -1,25 +1,24 @@
 name: Auto-Activate Paused Workflows (Multi-Repo)
 
 # ============================================================
-# 跨仓库批量激活「已停用超过阈值(默认60天/2个月)」的 Actions 工作流
+# 跨仓库批量激活「因不活跃被 GitHub 自动停用」的工作流
+# （state == disabled_inactivity，默认 60 天未活动触发）
 #
-# 触发方式：
-#   - 每 12 小时自动运行一次 (schedule)
-#   - 手动运行并自定义参数 (workflow_dispatch)
+# 配置来源（优先级从高到低）：
+#   1. workflow_dispatch 手动输入（repos / threshold / dry_run / token）
+#   2. 仓库根目录 config.json（由 Web 管理台网页写入）
 #
-# 鉴权：
-#   - 单仓库(仅当前仓库)：使用内置 GITHUB_TOKEN 即可
-#   - 跨仓库：需要一个对所有目标仓库都有 repo 权限的 PAT，
-#             存入 Secrets 的 BATCH_TOKEN
+# 网页可配置：目标仓库、阈值、检查频率、启用开关。
+# 详见 docs/index.html（GitHub Pages 托管）。
 # ============================================================
 
 on:
   schedule:
-    - cron: "0 */12 * * *"
+    - cron: "0 */12 * * *"   # 频率可由网页管理台修改
   workflow_dispatch:
     inputs:
       repos:
-        description: "目标仓库列表(每行 owner/repo)。留空=仅当前仓库"
+        description: "目标仓库列表(每行 owner/repo)。留空=用 config.json 或仅当前仓库"
         required: false
         default: ""
       paused_threshold_days:
@@ -38,47 +37,64 @@ on:
 
 permissions:
   actions: write
+  contents: read
 
 jobs:
   batch-activate:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve token & repos
+      - name: Checkout（读取 config.json）
+        uses: actions/checkout@v4
+
+      - name: 检查定时任务是否启用
+        id: cfg
+        run: |
+          ENABLED=true
+          if [ -f config.json ]; then
+            ENABLED=$(python3 -c "import json; print(str(json.load(open('config.json')).get('enabled', True)).lower())")
+          fi
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          echo "event=${{ github.event_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve token
         id: prep
+        if: ${{ github.event_name != 'schedule' || steps.cfg.outputs.enabled == 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
           INPUT_TOKEN: ${{ inputs.token }}
           BATCH_TOKEN: ${{ secrets.BATCH_TOKEN }}
-          INPUT_REPOS: ${{ inputs.repos }}
         run: |
           set -euo pipefail
-          # token 优先级：手动输入 > BATCH_TOKEN secret > 内置 GITHUB_TOKEN
           TOKEN="${INPUT_TOKEN:-${BATCH_TOKEN:-$GITHUB_TOKEN}}"
-          if [ -z "$TOKEN" ]; then
-            echo "❌ 没有可用的 token"; exit 1
-          fi
-          {
-            echo "token=$TOKEN"
-            echo "input_repos=${INPUT_REPOS:-}"
-          } >> "$GITHUB_OUTPUT"
+          if [ -z "$TOKEN" ]; then echo "❌ 没有可用的 token"; exit 1; fi
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
       - name: Find & activate paused workflows
+        if: ${{ github.event_name != 'schedule' || steps.cfg.outputs.enabled == 'true' }}
         env:
           GH_TOKEN: ${{ steps.prep.outputs.token }}
-          INPUT_REPOS: ${{ steps.prep.outputs.input_repos }}
-          GH_REPOSITORY: ${{ github.repository }}
+          INPUT_REPOS: ${{ inputs.repos }}
+          CUR_REPO: ${{ github.repository }}
           THRESHOLD_DAYS: ${{ inputs.paused_threshold_days || 60 }}
           DRY_RUN: ${{ inputs.dry_run || false }}
         run: |
           python3 <<'PYEOF'
-          import json, os, sys, time, urllib.request, urllib.error
+          import json, os, urllib.request, urllib.error
           from datetime import datetime, timezone
 
           token       = os.environ["GH_TOKEN"]
-          cur_repo    = os.environ["GH_REPOSITORY"]
+          cur_repo    = os.environ["CUR_REPO"]
           input_repos = (os.environ.get("INPUT_REPOS") or "").strip()
           threshold   = int(os.environ.get("THRESHOLD_DAYS", "60"))
           dry_run     = os.environ.get("DRY_RUN", "false").lower() == "true"
+
+          # 从 config.json 读取网页配置
+          cfg = {}
+          try:
+              with open("config.json") as f:
+                  cfg = json.load(f)
+          except FileNotFoundError:
+              pass
 
           def headers():
               return {"Authorization": f"Bearer {token}",
@@ -89,7 +105,6 @@ jobs:
               return json.load(urllib.request.urlopen(req))
 
           def get_all_workflows(repo):
-              """拉取某仓库全部工作流(处理分页)"""
               url = f"https://api.github.com/repos/{repo}/actions/workflows?per_page=100"
               data = get(url)
               out = list(data.get("workflows", []))
@@ -98,13 +113,17 @@ jobs:
                   out.extend(data.get("workflows", []))
               return out
 
-          # 目标仓库列表：手动输入优先，否则仅当前仓库
+          # 目标仓库优先级：手动输入 > config.json > 当前仓库
           if input_repos:
               repos = [r.strip() for r in input_repos.splitlines() if r.strip()]
+          elif cfg.get("repos"):
+              repos = cfg["repos"]
           else:
               repos = [cur_repo]
 
-          # GitHub 会把 60 天未活动的工作流自动标记为 disabled_inactivity；只激活这一类
+          if not input_repos and cfg.get("threshold_days"):
+              threshold = int(cfg["threshold_days"])
+
           PAUSED_STATES = {"disabled_inactivity"}
           now = datetime.now(timezone.utc)
 
@@ -129,7 +148,6 @@ jobs:
                   if state not in PAUSED_STATES:
                       continue
                   name = wf.get("name", wf.get("path", "?"))
-                  # 判定停用时长：用工作流 updated_at 近似“最后变更/停用时间”
                   updated = wf.get("updated_at") or wf.get("created_at")
                   if not updated:
                       print(f"  ⚠️  {name}: 缺少时间戳，跳过")
@@ -140,18 +158,17 @@ jobs:
                   print(f"  ⏸  {name}  |  {mark} ({paused_days}天, 更新于 {updated})")
                   repo_hit += 1
                   if paused_days <= threshold:
-                      # 停用时间不长，默认不动(避免误激活刚暂停的)
                       skipped_recent += 1
                       continue
                   if dry_run:
-                      print(f"       [DRY-RUN] 将激活")
+                      print("       [DRY-RUN] 将激活")
                       continue
                   try:
                       req = urllib.request.Request(
                           f"https://api.github.com/repos/{repo}/actions/workflows/{wf['id']}/enable",
                           method="PUT", headers=headers())
                       urllib.request.urlopen(req)
-                      print(f"       ✅ 已激活")
+                      print("       ✅ 已激活")
                       activated += 1
                   except urllib.error.HTTPError as e:
                       print(f"       ❌ 激活失败 ({e.code}: {e.reason})")
@@ -159,7 +176,6 @@ jobs:
               if repo_hit == 0:
                   print("  （无符合条件的暂停工作流）")
 
-          # 汇总
           print("\n" + "=" * 70)
           print(f"📊 汇总: 扫描工作流 {total} | 激活 {activated} | "
                 f"近期跳过 {skipped_recent} | 无时间戳 {skipped_undated} | 失败 {failed}")
@@ -167,7 +183,7 @@ jobs:
           summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
           if summary:
               with open(summary, "a") as f:
-                  f.write(f"### 多仓库工作流激活报告\n")
+                  f.write("### 多仓库工作流激活报告\n")
                   f.write(f"- 目标仓库: {', '.join(repos)}\n")
                   f.write(f"- 阈值: {threshold} 天, DRY_RUN={dry_run}\n")
                   f.write(f"- 扫描工作流: {total}\n")

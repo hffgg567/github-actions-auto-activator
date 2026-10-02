@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Actions 管理台 · GitHub Pages</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+         background: #0d1117; color: #e6edf3; min-height: 100vh; padding: 24px; line-height: 1.5; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 21px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .sub { color: #8b949e; font-size: 13px; margin-bottom: 18px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin-bottom: 14px; color: #e6edf3; display: flex; align-items: center; gap: 8px; }
+  label { display: block; font-size: 13px; color: #8b949e; margin-bottom: 6px; }
+  input, select, textarea { width: 100%; padding: 9px 11px; background: #0d1117; color: #e6edf3;
+          border: 1px solid #30363d; border-radius: 7px; font-size: 14px; font-family: inherit; }
+  textarea { resize: vertical; min-height: 92px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 170px; }
+  .btn { cursor: pointer; padding: 9px 16px; border: none; border-radius: 7px;
+         font-size: 14px; font-weight: 600; transition: .15s; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: #238636; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #2ea043; }
+  .btn-ghost { background: transparent; color: #58a6ff; border: 1px solid #30363d; }
+  .btn-ghost:hover:not(:disabled) { background: #21262d; }
+  .btn-danger { background: #21262d; color: #f85149; border: 1px solid #30363d; }
+  .btn-danger:hover:not(:disabled) { background: #3a1a1a; }
+  .actions-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  .hint { font-size: 12px; color: #8b949e; }
+  .table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .table th, .table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #21262d; font-size: 13px; vertical-align: middle; }
+  .table th { color: #8b949e; font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .b-active { background: #1a3a2a; color: #3fb950; }
+  .b-paused { background: #3a2a1a; color: #d29922; }
+  .b-disabled { background: #3a1a1a; color: #f85149; }
+  .mini-btn { cursor: pointer; padding: 5px 12px; border-radius: 6px; font-size: 12px;
+           font-weight: 600; border: 1px solid #30363d; background: #21262d; color: #e6edf3; }
+  .mini-btn:hover { background: #30363d; }
+  .mini-btn.enable { border-color: #238636; color: #3fb950; }
+  .mini-btn.disable { border-color: #da3633; color: #f85149; }
+  .empty { text-align: center; color: #8b949e; padding: 26px; font-size: 14px; }
+  .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid #30363d;
+             border-top-color: #58a6ff; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .msg { padding: 10px 14px; border-radius: 7px; margin-bottom: 14px; font-size: 13px; display: none; }
+  .msg.ok { display: block; background: #1a3a2a; color: #3fb950; border: 1px solid #238636; }
+  .msg.err { display: block; background: #3a1a1a; color: #f85149; border: 1px solid #da3633; }
+  .days { color: #8b949e; font-size: 12px; }
+  .filter-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #21262d; color: #d29922; margin-left: 6px; }
+  .mode-tag { font-size: 11px; padding: 2px 8px; border-radius: 5px; background: #21262d; color: #58a6ff; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  .switch input { width: auto; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: #58a6ff; font-size: 13px; }
+  .log { background: #0d1117; border: 1px solid #30363d; border-radius: 7px; padding: 12px;
+         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: pre-wrap;
+         color: #8b949e; max-height: 260px; overflow-y: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚙️ GitHub Actions 管理台 <span class="mode-tag">GitHub Pages</span></h1>
+  <div class="sub">纯前端页面，由 GitHub Pages 托管，浏览器直连 GitHub API。可网页配置定时激活、手动启停任意工作流。</div>
+
+  <div class="msg" id="msg"></div>
+
+  <!-- 连接 -->
+  <div class="card">
+    <h2>① 连接</h2>
+    <div class="row">
+      <div>
+        <label>控制仓库 (owner/repo) <span class="hint">存放 config.json 与定时工作流的仓库</span></label>
+        <input type="text" id="controlRepo" placeholder="例如 hffgg567/github-actions-auto-activator">
+      </div>
+      <div>
+        <label>Personal Access Token <span class="hint">需要 repo 权限</span></label>
+        <input type="password" id="token" placeholder="ghp_xxx 或 github_pat_xxx">
+      </div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-ghost" id="btnConnect">连接并加载配置</button>
+      <span class="hint" id="connState"></span>
+    </div>
+  </div>
+
+  <!-- 定时自动激活配置 -->
+  <div class="card">
+    <h2>② 定时自动激活配置</h2>
+    <label class="switch"><input type="checkbox" id="cfgEnabled"> 启用定时自动激活（扫描目标仓库，重新启用因不活跃被停用的工作流）</label>
+    <div style="height:12px"></div>
+    <div class="row">
+      <div style="flex:2">
+        <label>目标仓库（每行一个 owner/repo）</label>
+        <textarea id="cfgRepos" placeholder="owner/repo-a&#10;owner/repo-b"></textarea>
+      </div>
+      <div>
+        <label>停用阈值（天）</label>
+        <input type="number" id="cfgThreshold" value="60" min="1">
+        <div style="height:12px"></div>
+        <label>检查频率</label>
+        <select id="cfgCron">
+          <option value="0 */6 * * *">每 6 小时</option>
+          <option value="0 */12 * * *" selected>每 12 小时</option>
+          <option value="0 0 * * *">每天</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-primary" id="btnSaveCfg" disabled>保存配置到仓库</button>
+      <button class="btn btn-ghost" id="btnRunNow" disabled>立即运行一次</button>
+      <span class="hint" id="cfgState"></span>
+    </div>
+  </div>
+
+  <!-- 手动管理 -->
+  <div class="card">
+    <h2>③ 手动管理（任意仓库）</h2>
+    <div class="row">
+      <div>
+        <label>仓库 (owner/repo)</label>
+        <input type="text" id="mgmtRepo" placeholder="例如 owner/repo">
+      </div>
+      <div style="max-width:200px; display:flex; align-items:flex-end;">
+        <button class="btn btn-primary" id="btnLoad" style="width:100%">加载工作流</button>
+      </div>
+    </div>
+    <div class="actions-bar">
+      <button class="btn btn-ghost" id="btnBulk" disabled>一键激活全部「不活跃停用」</button>
+      <span class="hint" id="mgmtState"></span>
+    </div>
+    <div id="list"><div class="empty">填写仓库后点击「加载工作流」</div></div>
+  </div>
+
+  <!-- 日志 -->
+  <div class="card">
+    <details>
+      <summary>运行日志</summary>
+      <div class="log" id="log" style="margin-top:10px"></div>
+    </details>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const API = "https://api.github.com";
+  const WF_FILE = ".github/workflows/auto-activate-workflows.yml";
+
+  // ---- 本地存储 ----
+  const LS = {
+    get token() { return localStorage.getItem("gh_token") || ""; },
+    set token(v) { v ? localStorage.setItem("gh_token", v) : localStorage.removeItem("gh_token"); },
+    get control() { return localStorage.getItem("gh_control") || ""; },
+    set control(v) { v ? localStorage.setItem("gh_control", v) : localStorage.removeItem("gh_control"); },
+  };
+
+  // ---- 工具 ----
+  function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+  function b64decode(b64) { return decodeURIComponent(escape(atob(b64))); }
+  function log(msg, ok) {
+    const el = $("log");
+    const ts = new Date().toLocaleTimeString();
+    el.textContent += `[${ts}] ${msg}\n`;
+    el.scrollTop = el.scrollHeight;
+    if (ok !== undefined) showMsg(msg, ok);
+  }
+  function showMsg(text, ok) {
+    const m = $("msg");
+    m.textContent = text;
+    m.className = "msg " + (ok ? "ok" : "err");
+    setTimeout(() => { m.className = "msg"; }, 6000);
+  }
+
+  // ---- API 封装 ----
+  async function gh(method, path, body) {
+    const token = LS.token;
+    if (!token) throw new Error("请先在「连接」卡片填写 Token");
+    const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+    if (body) headers["Content-Type"] = "application/json";
+    const res = await fetch(`${API}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    if (res.status === 204 || res.status === 205) return null;
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = `${res.status} ${res.statusText}`;
+      try { msg = JSON.parse(text).message || msg; } catch (e) {}
+      throw new Error(msg);
+    }
+    return text ? JSON.parse(text) : null;
+  }
+
+  async function readFile(repo, path) {
+    return gh("GET", `/repos/${repo}/contents/${path}`);
+  }
+  async function writeFile(repo, path, content, sha) {
+    const body = { message: `chore: update ${path} via web manager`, content: b64encode(content) };
+    if (sha) body.sha = sha;
+    return gh("PUT", `/repos/${repo}/contents/${path}`, body);
+  }
+
+  // ---- 自动推断控制仓库 ----
+  function inferControlRepo() {
+    try {
+      const owner = location.host.split(".")[0];
+      const repo = location.pathname.split("/").filter(Boolean)[0];
+      if (owner && repo && owner !== "github" && owner !== "www") return `${owner}/${repo}`;
+    } catch (e) {}
+    return "";
+  }
+
+  function parseRepos(text) {
+    return text.split("\n").map(s => s.trim()).filter(Boolean);
+  }
+
+  // ---- 连接并加载配置 ----
+  async function connect() {
+    const token = $("token").value.trim();
+    const repo = $("controlRepo").value.trim();
+    if (!token) return showMsg("请填写 Token", false);
+    if (!repo) return showMsg("请填写控制仓库", false);
+    LS.token = token;
+    LS.control = repo;
+    $("connState").innerHTML = '<span class="spinner"></span> 连接中…';
+    $("btnSaveCfg").disabled = true;
+    $("btnRunNow").disabled = true;
+    try {
+      await gh("GET", `/repos/${repo}`); // 验证可访问
+      $("connState").textContent = "✅ 已连接 " + repo;
+      // 尝试加载 config.json
+      let cfg = null;
+      try {
+        const data = await readFile(repo, "config.json");
+        cfg = JSON.parse(b64decode(data.content));
+      } catch (e) { log("未找到 config.json，将使用默认配置"); }
+      if (cfg) {
+        $("cfgEnabled").checked = !!cfg.enabled;
+        $("cfgRepos").value = (cfg.repos || []).join("\n");
+        $("cfgThreshold").value = cfg.threshold_days || 60;
+        if (cfg.cron) {
+          const opt = [...$("cfgCron").options].find(o => o.value === cfg.cron);
+          if (opt) opt.selected = true;
+        }
+        log("已加载仓库配置");
+      }
+      $("btnSaveCfg").disabled = false;
+      $("btnRunNow").disabled = false;
+      showMsg("连接成功", true);
+    } catch (e) {
+      $("connState").textContent = "";
+      showMsg("连接失败: " + e.message, false);
+    }
+  }
+
+  // ---- 保存配置 ----
+  async function saveConfig() {
+    const repo = LS.control;
+    if (!repo) return showMsg("请先连接", false);
+    const cfg = {
+      enabled: $("cfgEnabled").checked,
+      repos: parseRepos($("cfgRepos").value),
+      threshold_days: parseInt($("cfgThreshold").value, 10) || 60,
+      cron: $("cfgCron").value,
+    };
+    $("cfgState").innerHTML = '<span class="spinner"></span> 保存中…';
+    try {
+      // 1) 写 config.json
+      let sha;
+      try { const d = await readFile(repo, "config.json"); sha = d.sha; } catch (e) {}
+      await writeFile(repo, "config.json", JSON.stringify(cfg, null, 2), sha);
+      log("✅ config.json 已更新");
+
+      // 2) 同步更新 yml 的 cron（若启用）
+      if (cfg.enabled) {
+        try {
+          const d = await readFile(repo, WF_FILE);
+          let content = b64decode(d.content);
+          content = content.replace(/(- cron:\s*")[^"]*(")/, `$1${cfg.cron}$2`);
+          await writeFile(repo, WF_FILE, content, d.sha);
+          log("✅ 定时工作流 cron 已更新为 " + cfg.cron);
+        } catch (e) { log("⚠️ 更新 yml cron 失败: " + e.message); }
+      }
+      $("cfgState").textContent = "✅ 已保存";
+      showMsg("配置已保存到仓库", true);
+    } catch (e) {
+      $("cfgState").textContent = "";
+      showMsg("保存失败: " + e.message, false);
+    }
+  }
+
+  // ---- 立即运行 ----
+  async function runNow() {
+    const repo = LS.control;
+    try {
+      await gh("POST", `/repos/${repo}/actions/workflows/auto-activate-workflows.yml/dispatches`, { ref: "main" });
+      showMsg("已触发手动运行", true);
+    } catch (e) {
+      showMsg("触发失败: " + e.message, false);
+    }
+  }
+
+  // ---- 手动管理 ----
+  let curWorkflows = [];
+  let curRepo = "";
+
+  async function loadWorkflows() {
+    const repo = $("mgmtRepo").value.trim();
+    if (!repo) return showMsg("请填写目标仓库", false);
+    curRepo = repo;
+    $("mgmtState").innerHTML = '<span class="spinner"></span> 加载中…';
+    $("btnBulk").disabled = true;
+    try {
+      let workflows = [];
+      let page = 1, hasNext = true;
+      while (hasNext) {
+        const data = await gh("GET", `/repos/${repo}/actions/workflows?per_page=100&page=${page}`);
+        workflows = workflows.concat(data.workflows || []);
+        hasNext = !!(data.links && data.links.next) && workflows.length < (data.total_count || 0);
+        page++;
+      }
+      curWorkflows = workflows;
+      render();
+      $("mgmtState").textContent = `共 ${workflows.length} 个工作流`;
+      const canBulk = workflows.some(w => w.state === "disabled_inactivity");
+      $("btnBulk").disabled = !canBulk;
+    } catch (e) {
+      $("mgmtState").textContent = "";
+      showMsg("加载失败: " + e.message, false);
+    }
+  }
+
+  function daysSince(iso) {
+    if (!iso) return null;
+    return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  }
+  function stateBadge(s) {
+    if (s === "active") return '<span class="badge b-active">启用中</span>';
+    if (s === "disabled_manually") return '<span class="badge b-paused">已停用(手动)</span>';
+    if (s === "disabled_schedule") return '<span class="badge b-paused">已停用(调度)</span>';
+    if (s === "disabled_inactivity") return '<span class="badge b-disabled">已停用(不活跃)</span>';
+    if (s === "disabled") return '<span class="badge b-disabled">已禁用</span>';
+    return `<span class="badge b-disabled">${s}</span>`;
+  }
+
+  function render() {
+    const list = $("list");
+    if (!curWorkflows.length) { list.innerHTML = '<div class="empty">该仓库没有工作流</div>'; return; }
+    const rows = curWorkflows.map(wf => {
+      const days = daysSince(wf.updated_at || wf.created_at);
+      const daysCell = days !== null ? `<span class="days">${days} 天前</span>` : "—";
+      let btn;
+      if (wf.state === "active") {
+        btn = `<button class="mini-btn disable" onclick="window.__mgmt(${wf.id}, false)">禁用</button>`;
+      } else if (wf.state === "disabled_inactivity") {
+        btn = `<button class="mini-btn enable" onclick="window.__mgmt(${wf.id}, true)">一键启用</button>`;
+      } else {
+        btn = `<button class="mini-btn enable" onclick="window.__mgmt(${wf.id}, true)">启用</button>`;
+      }
+      return `<tr>
+        <td><b>${wf.name}</b><br><span class="days">${wf.path}</span></td>
+        <td>${stateBadge(wf.state)}</td>
+        <td>${daysCell}</td>
+        <td style="text-align:right">${btn}</td>
+      </tr>`;
+    }).join("");
+    list.innerHTML = `<table class="table">
+      <thead><tr><th>工作流</th><th>状态</th><th>最后变更</th><th style="text-align:right">操作</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  }
+
+  window.__mgmt = async function (id, enable) {
+    try {
+      await gh("PUT", `/repos/${curRepo}/actions/workflows/${id}/${enable ? "enable" : "disable"}`);
+      showMsg(enable ? "已启用" : "已禁用", true);
+      await loadWorkflows();
+    } catch (e) {
+      showMsg("操作失败: " + e.message, false);
+    }
+  };
+
+  async function bulkActivate() {
+    const targets = curWorkflows.filter(w => w.state === "disabled_inactivity");
+    if (!targets.length) return showMsg("没有需要激活的工作流", false);
+    if (!confirm(`确定对 ${targets.length} 个「因不活跃被停用」的工作流执行启用？`)) return;
+    let ok = 0, fail = 0;
+    for (const wf of targets) {
+      try { await gh("PUT", `/repos/${curRepo}/actions/workflows/${wf.id}/enable`); ok++; }
+      catch (e) { fail++; log(`❌ ${wf.name}: ${e.message}`); }
+    }
+    showMsg(`批量激活完成：成功 ${ok}，失败 ${fail}`, fail === 0);
+    await loadWorkflows();
+  }
+
+  // ---- 初始化 ----
+  function init() {
+    $("token").value = LS.token;
+    $("controlRepo").value = LS.control || inferControlRepo();
+    $("btnConnect").onclick = connect;
+    $("btnSaveCfg").onclick = saveConfig;
+    $("btnRunNow").onclick = runNow;
+    $("btnLoad").onclick = loadWorkflows;
+    $("btnBulk").onclick = bulkActivate;
+    if (LS.token) $("connState").textContent = "已记住 Token（点击连接加载配置）";
+  }
+  init();
+})();
+</script>
+</body>
+</html>

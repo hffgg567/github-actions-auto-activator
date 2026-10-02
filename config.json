@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "repos": [],
+  "threshold_days": 60,
+  "cron": "0 */12 * * *"
+}
