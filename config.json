@@ -5,5 +5,5 @@
     "hffgg567/dnshe-auto-renew"
   ],
   "threshold_days": 60,
-  "cron": "0 */12 * * *"
+  "cron": "0 0 * * *"
 }
